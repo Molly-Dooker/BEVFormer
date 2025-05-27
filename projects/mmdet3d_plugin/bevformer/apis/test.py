@@ -21,7 +21,7 @@ from mmdet.core import encode_mask_results
 import mmcv
 import numpy as np
 import pycocotools.mask as mask_util
-
+import ipdb
 def custom_encode_mask_results(mask_results):
     """Encode bitmap mask to RLE code. Semantic Masks only
     Args:
@@ -69,7 +69,9 @@ def custom_multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
     have_mask = False
     for i, data in enumerate(data_loader):
         with torch.no_grad():
+            # ipdb.set_trace()
             result = model(return_loss=False, rescale=True, **data)
+            # ipdb.set_trace()
             # encode mask results
             if isinstance(result, dict):
                 if 'bbox_results' in result.keys():

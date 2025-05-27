@@ -23,7 +23,7 @@ from projects.mmdet3d_plugin.bevformer.apis.test import custom_multi_gpu_test
 from mmdet.datasets import replace_ImageToTensor
 import time
 import os.path as osp
-
+import ipdb
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -210,8 +210,9 @@ def main():
     if fp16_cfg is not None:
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
-    if args.fuse_conv_bn:
-        model = fuse_conv_bn(model)
+    # if args.fuse_conv_bn:
+    #     model = fuse_conv_bn(model)
+    model = fuse_conv_bn(model)
     # old versions did not save class info in checkpoints, this walkaround is
     # for backward compatibility
     if 'CLASSES' in checkpoint.get('meta', {}):
@@ -230,13 +231,37 @@ def main():
         # model = MMDataParallel(model, device_ids=[0])
         # outputs = single_gpu_test(model, data_loader, args.show, args.show_dir)
     else:
+        # ipdb.set_trace()
+        # head = model.pts_bbox_head
+        # for name, _ in head.named_children():
+        #     print(name)    
+        #     # loss_cls
+        #     # loss_bbox
+        #     # loss_iou
+        #     # activate
+        #     # positional_encoding
+        #     # transformer
+        #     # cls_branches
+        #     # reg_branches
+        #     # bev_embedding
+        #     # query_embedding
+            
+        # for name, _ in model.named_children():
+        #     print(name)    
+        # # pts_bbox_head   projects.mmdet3d_plugin.bevformer.dense_heads.bevformer_head.BEVFormerHead
+        # # img_backbone    mmdet.models.backbones.resnet.ResNet
+        # # img_neck        mmdet.models.necks.fpn.FPN
+        # # grid_mask       projects.mmdet3d_plugin.models.utils.grid_mask.GridMask'
+
+
+
         model = MMDistributedDataParallel(
             model.cuda(),
             device_ids=[torch.cuda.current_device()],
             broadcast_buffers=False)
         outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
                                         args.gpu_collect)
-
+        # ipdb.set_trace()
     rank, _ = get_dist_info()
     if rank == 0:
         if args.out:
