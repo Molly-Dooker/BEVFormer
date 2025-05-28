@@ -261,7 +261,6 @@ def main():
             broadcast_buffers=False)
         outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
                                         args.gpu_collect)
-        # ipdb.set_trace()
     rank, _ = get_dist_info()
     if rank == 0:
         if args.out:

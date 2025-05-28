@@ -71,6 +71,7 @@ def custom_multi_gpu_test(model, data_loader, tmpdir=None, gpu_collect=False):
         with torch.no_grad():
             # ipdb.set_trace()
             result = model(return_loss=False, rescale=True, **data)
+            # projects/mmdet3d_plugin/bevformer/detectors/bevformer.py
             # ipdb.set_trace()
             # encode mask results
             if isinstance(result, dict):
