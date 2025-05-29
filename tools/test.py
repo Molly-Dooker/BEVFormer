@@ -25,6 +25,19 @@ import time
 import os.path as osp
 import ipdb
 from tqdm import tqdm
+from loguru import logger
+import sys
+def logger_enable(prefix=''):
+    def console_filter(record):
+        # extra에 file_only가 True인 경우 콘솔 출력 제외
+        return not record["extra"].get("file_only", False)
+    global logger
+    logger.remove()
+    LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {extra[prefix]} | {level} | {message}"
+    logger.add(sys.stdout, level="INFO", format=LOG_FORMAT, filter=console_filter)
+    logger.add("_logs/log", rotation="500 MB", level="INFO", format=LOG_FORMAT)
+    logger = logger.bind(prefix=prefix)
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description='MMDet test (and eval) a model')
@@ -93,6 +106,7 @@ def parse_args():
         default='none',
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument("--prefix", type=str, default="Default")
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -227,13 +241,79 @@ def main():
         model.PALETTE = dataset.PALETTE
 
     if not distributed:
+        logger_enable(args.prefix)
+        BIT = 8
+        damp = 0.01
+        trueobs = {}
         model = MMDataParallel(model, device_ids=[0])
-        model.eval()
+        model.eval() 
+        
+        from torch.nn import Linear, Conv2d
+        from _OBS import TrueOBS, Quantizer, get_module, _calibrate_input
 
+        for name, m in model.named_modules():
+            if not isinstance(m,(Linear,Conv2d)): continue
+            trueobs[name] = TrueOBS(m, rel_damp=damp)
+            trueobs[name].quantizer = Quantizer()
+            trueobs[name].quantizer.configure(
+                bits=BIT, perchannel=True, sym=True, mse=False
+            )
+
+
+        def add_batch(name):
+            def tmp(layer, inp, out):
+                trueobs[name].add_batch(inp[0].data, out.data)
+            return tmp
+        handles = []
+        for name, m in model.named_modules():
+            if not isinstance(m,(Linear,Conv2d)): continue
+            handles.append(m.register_forward_hook(add_batch(name)))
+        logger.info('inference for Hessian start')
         for i, data in enumerate(tqdm(data_loader)):
             with torch.no_grad():
-                result = model(return_loss=False, rescale=True, **data)
-        # outputs = single_gpu_test(model, data_loader, args.show, args.show_dir)
+                _ = model(return_loss=False, rescale=True, **data)
+        logger.info('inference for Hessian end')
+        for h in handles:
+            h.remove()    
+        logger.info('Weight quantization start')
+        DEAD_LAYER = []
+        for name in tqdm(trueobs,desc='Weight quantization'):
+            logger.info(f'{name}')
+            try:
+                error = trueobs[name].quantize()
+                logger.info(f'error : {error}')
+                m = get_module(model,name)
+                m.register_buffer('w_scale',trueobs[name].quantizer.scale)
+            except:
+                DEAD_LAYER.append(name)
+                logger.info(f'!!!!!!!!!!!! DEAD')
+            finally:
+                trueobs[name].free()
+        logger.info('Weight quantization end')
+
+        # Act quantization
+        handles = []
+        for name, m in model.named_modules():
+            if not isinstance(m,(Linear,Conv2d)): continue
+            if name in DEAD_LAYER: continue
+            m.register_buffer('maxq',torch.tensor(2**(BIT)-1, device=m.weight.device))
+            m.register_buffer('minq',torch.tensor(-2**(BIT),  device=m.weight.device))
+            handles.append(m.register_forward_pre_hook(_calibrate_input))   
+        logger.info('Act quantization start')
+        for i, data in enumerate(tqdm(data_loader)):
+            with torch.no_grad():
+                _ = model(return_loss=False, rescale=True, **data)
+                # if i==2: break
+        for h in handles:
+            h.remove() 
+        logger.info('Act quantization end')        
+        param = model.state_dict()
+        torch.save(param, f'ckpts/{args.prefix}.pth')
+        logger.info('Finished')    
+        
+
+
+
     else:
         # ipdb.set_trace()
         # head = model.pts_bbox_head
@@ -265,29 +345,29 @@ def main():
             broadcast_buffers=False)
         outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
                                         args.gpu_collect)
-    rank, _ = get_dist_info()
-    if rank == 0:
-        if args.out:
-            print(f'\nwriting results to {args.out}')
-            assert False
-            #mmcv.dump(outputs['bbox_results'], args.out)
-        kwargs = {} if args.eval_options is None else args.eval_options
-        kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
-            '/')[-1].split('.')[-2], time.ctime().replace(' ', '_').replace(':', '_'))
-        if args.format_only:
-            dataset.format_results(outputs, **kwargs)
+        rank, _ = get_dist_info()
+        if rank == 0:
+            if args.out:
+                print(f'\nwriting results to {args.out}')
+                assert False
+                #mmcv.dump(outputs['bbox_results'], args.out)
+            kwargs = {} if args.eval_options is None else args.eval_options
+            kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
+                '/')[-1].split('.')[-2], time.ctime().replace(' ', '_').replace(':', '_'))
+            if args.format_only:
+                dataset.format_results(outputs, **kwargs)
 
-        if args.eval:
-            eval_kwargs = cfg.get('evaluation', {}).copy()
-            # hard-code way to remove EvalHook args
-            for key in [
-                    'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
-                    'rule'
-            ]:
-                eval_kwargs.pop(key, None)
-            eval_kwargs.update(dict(metric=args.eval, **kwargs))
+            if args.eval:
+                eval_kwargs = cfg.get('evaluation', {}).copy()
+                # hard-code way to remove EvalHook args
+                for key in [
+                        'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
+                        'rule'
+                ]:
+                    eval_kwargs.pop(key, None)
+                eval_kwargs.update(dict(metric=args.eval, **kwargs))
 
-            print(dataset.evaluate(outputs, **eval_kwargs))
+                print(dataset.evaluate(outputs, **eval_kwargs))
 
 
 if __name__ == '__main__':

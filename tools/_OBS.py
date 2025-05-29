@@ -105,7 +105,7 @@ class TrueOBS:
             # Hinv = torch.cholesky_inverse(torch.linalg.cholesky(H))
             Hinv = torch.cholesky_inverse(torch.linalg.cholesky(H.cpu())).to('cuda')
         except RuntimeError:
-            print('Hessian not full rank.')
+            # print('Hessian not full rank.')
             tmp = 1 * torch.eye(self.columns, device=self.dev)
             # Hinv = torch.cholesky_inverse(torch.linalg.cholesky(H + tmp))
             Hinv = torch.cholesky_inverse(torch.linalg.cholesky((H + tmp).cpu())).to('cuda')
@@ -166,7 +166,7 @@ class TrueOBS:
         Q = torch.zeros_like(W)
         self.quantizer.find_params(W, weight=True) # 일단 간단한 ptq 로 weight에 대한  scale 과 zp 구함 sym이므로 zp=0, absmax->mse 
         parallel = 32
-        for i1 in tqdm(range(0, self.rows, parallel),desc='batch'):
+        for i1 in range(0, self.rows, parallel):
             # 실제로는 row별로 동작하는데 효율성 위해 미니배치로 처리
             i2, count, w, Hinv, mask, rangecount, idxcount = self.prepare_iter(i1, parallel, W, Hinv1)
             # i1 : 현재 배치 시작 index
@@ -236,12 +236,12 @@ class TrueOBS:
 
             torch.cuda.synchronize()
             # print('%04d %04d time %.2f' % (i1, i2, time.time() - tick))
+        error = torch.sum(Losses).item()
 
-        print('error', torch.sum(Losses).item())
         self.layer.weight.data = Q.reshape(self.layer.weight.shape)
-        
-        if DEBUG:
-            print(torch.sum((self.layer(self.inp1) - self.out1) ** 2) / 128)
+        return error        
+        # if DEBUG:
+        #     print(torch.sum((self.layer(self.inp1) - self.out1) ** 2) / 128)
 
     def nmprune(self, n=2, m=4, parallel=32):
         
