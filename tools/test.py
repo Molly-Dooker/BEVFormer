@@ -277,7 +277,7 @@ def main():
             h.remove()    
         logger.info('Weight quantization start')
         DEAD_LAYER = []
-        for name in tqdm(trueobs,desc='Weight quantization'):
+        for name,_ in tqdm(model.named_modules(),desc='Weight quantization'):
             logger.info(f'{name}')
             try:
                 error = trueobs[name].quantize()
