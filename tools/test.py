@@ -24,7 +24,7 @@ from mmdet.datasets import replace_ImageToTensor
 import time
 import os.path as osp
 import ipdb
-
+from tqdm import tqdm
 def parse_args():
     parser = argparse.ArgumentParser(
         description='MMDet test (and eval) a model')
