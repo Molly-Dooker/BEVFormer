@@ -227,8 +227,12 @@ def main():
         model.PALETTE = dataset.PALETTE
 
     if not distributed:
-        assert False
-        # model = MMDataParallel(model, device_ids=[0])
+        model = MMDataParallel(model, device_ids=[0])
+        model.eval()
+
+        for i, data in enumerate(tqdm(data_loader)):
+            with torch.no_grad():
+                result = model(return_loss=False, rescale=True, **data)
         # outputs = single_gpu_test(model, data_loader, args.show, args.show_dir)
     else:
         # ipdb.set_trace()
