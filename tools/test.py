@@ -238,7 +238,8 @@ def main():
     #     model = fuse_conv_bn(model)
     model = fuse_conv_bn(model)
     # distributed = True
-    if distributed and args.prefix!='':                    
+    if distributed and args.prefix!='':      
+        print(f'prefix:{args.prefix}')              
         params = torch.load(f'ckpts/{args.prefix}.pth')
         model.load_state_dict(params, strict=False)
         # w_scale, act_scale, max_q, min_q 추가
@@ -253,6 +254,7 @@ def main():
         for name, m in model.named_modules():
             if not isinstance(m,(Linear,Conv2d)): continue
             if not hasattr(m,'act_scale') : continue
+            print(f'register prehook : {name}')
             m.register_forward_pre_hook(_quantize_input)
     # old versions did not save class info in checkpoints, this walkaround is
     # for backward compatibility
@@ -269,29 +271,29 @@ def main():
 
     if not distributed:
         logger_enable(args.prefix)
-        BATCH_TO_PROCESS = 3
+        BATCH_TO_PROCESS = 2
         BIT = 8
         damp = 0.01
         trueobs = {}
         model = MMDataParallel(model, device_ids=[0])
         model.eval() 
         
-        
+
         exclude = ['re:.*pts_bbox_head.transformer.decoder.layers.*.attentions.0.attn.out_proj']
         include = []
         if args.include is not None:
             include.extend([ x for x in args.include.replace(' ','').split(',') ]) 
             if args.include=='': include = []
+        logger.info(f'INCLUDE: {include}')
         TARGET = []
         for name, m in model.named_modules():
-            if is_match(name,exclude):continue
+            if is_match(name,exclude): continue
             if not is_match(name,include): continue
             if not isinstance(m,(Linear,Conv2d)):continue
             TARGET.append(name)        
         logger.info(f'target modules: {TARGET}')
                     
         for name in TARGET:
-            # if not isinstance(m,(Linear,Conv2d)): continue
             m = get_module(model,name)
             trueobs[name] = TrueOBS(m, rel_damp=damp)
             trueobs[name].quantizer = Quantizer()
@@ -305,8 +307,8 @@ def main():
                 trueobs[name].add_batch(inp[0].data, out.data)
             return tmp
         handles = []
-        for name, m in model.named_modules():
-            if not isinstance(m,(Linear,Conv2d)): continue
+        for name in TARGET:
+            m = get_module(model,name)
             handles.append(m.register_forward_hook(add_batch(name)))
         logger.info('inference for Hessian start')
         for i, data in enumerate(tqdm(data_loader)):
@@ -320,23 +322,28 @@ def main():
         logger.info('Weight quantization start')
         DEAD_LAYER = []
 
-        for i, name in enumerate(tqdm(trueobs,desc='weight Q')):   
-            # if not isinstance(m,(Linear,Conv2d)): continue      
+        for i, name in enumerate(tqdm(TARGET,desc='weight Q')):
+            m = get_module(model,name)
             try:
                 error = trueobs[name].quantize()
-                logger.info(f'{i+1:3}/252 {name} : {error}')
-                m = get_module(model,name)
-                m.register_buffer('w_scale',trueobs[name].quantizer.scale)
+                if error==0.0:
+                    logger.info(f'{i+1:3}/{len(TARGET)} {name} : error 0 -> DEAD')
+                    DEAD_LAYER.append(name)
+                else:
+                    logger.info(f'{i+1:3}/{len(TARGET)} {name} : {error}')
+                    m = get_module(model,name)
+                    m.register_buffer('w_scale',trueobs[name].quantizer.scale)
             except:
                 DEAD_LAYER.append(name)
-                logger.info(f'{i+1:3}/252 {name} : DEAD')
+                logger.info(f'{i+1:3}/{len(TARGET)} {name} : DEAD')
             finally:
                 trueobs[name].free()
         logger.info('Weight quantization end')
 
         # Act quantization
         handles = []
-        for name, m in model.named_modules():
+        for name in TARGET:
+            m = get_module(model,name)
             if not isinstance(m,(Linear,Conv2d)): continue
             if name in DEAD_LAYER: continue
             m.register_buffer('maxq',torch.tensor(2**(BIT-1)-1, device=m.weight.device))
@@ -353,7 +360,6 @@ def main():
         logger.info('Act quantization end')        
         param = model.module.state_dict()
         torch.save(param, f'ckpts/{args.prefix}.pth')
-        pp = torch.load(f'ckpts/{args.prefix}.pth')
         logger.info('Finished')    
         
 

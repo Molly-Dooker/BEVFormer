@@ -1,6 +1,6 @@
 <div align="center">   
   
-./tools/dist_test.sh ./projects/configs/bevformer/bevformer_base.py ./ckpts/bevformer_r101_dcn_24ep.pth 8
+./tools/dist_test.sh ./projects/configs/bevformer/bevformer_base.py ./ckpts/bevformer_r101_dcn_24ep.pth 8  --prefix test0
 
 # BEVFormer: a Cutting-edge Baseline for Camera-based Detection
 </div>

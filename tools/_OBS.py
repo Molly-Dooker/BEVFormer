@@ -249,8 +249,8 @@ class TrueOBS:
             torch.cuda.synchronize()
             # print('%04d %04d time %.2f' % (i1, i2, time.time() - tick))
         error = torch.sum(Losses).item()
-
-        self.layer.weight.data = Q.reshape(self.layer.weight.shape)
+        if error!=0.0 :
+            self.layer.weight.data = Q.reshape(self.layer.weight.shape)
         return error        
         # if DEBUG:
         #     print(torch.sum((self.layer(self.inp1) - self.out1) ** 2) / 128)
