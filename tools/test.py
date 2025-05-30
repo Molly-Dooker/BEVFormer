@@ -271,7 +271,7 @@ def main():
 
     if not distributed:
         logger_enable(args.prefix)
-        BATCH_TO_PROCESS = 2
+        BATCH_TO_PROCESS = 700
         BIT = 8
         damp = 0.01
         trueobs = {}
