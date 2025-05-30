@@ -27,6 +27,9 @@ import ipdb
 from tqdm import tqdm
 from loguru import logger
 import sys
+from torch.nn import Linear, Conv2d
+from _OBS import TrueOBS, Quantizer, get_module, _calibrate_input, _quantize_input, is_match
+        
 def logger_enable(prefix=''):
     def console_filter(record):
         # extra에 file_only가 True인 경우 콘솔 출력 제외
@@ -106,7 +109,8 @@ def parse_args():
         default='none',
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
-    parser.add_argument("--prefix", type=str, default="Default")
+    parser.add_argument("--prefix", type=str, default="")
+    parser.add_argument("--include", type=str, default="")
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -234,9 +238,22 @@ def main():
     #     model = fuse_conv_bn(model)
     model = fuse_conv_bn(model)
     # distributed = True
-    if distributed and args.prefix!='':
+    if distributed and args.prefix!='':                    
         params = torch.load(f'ckpts/{args.prefix}.pth')
-        ipdb.set_trace()
+        model.load_state_dict(params, strict=False)
+        # w_scale, act_scale, max_q, min_q 추가
+        for key_to_add, value_to_add in params.items():
+            path_parts = key_to_add.split('.') 
+            buffer_name_to_register = path_parts[-1]
+            module_path_str = '.'.join(path_parts[:-1])
+            if buffer_name_to_register not in ['w_scale','act_scale','maxq','minq']: continue
+            module = get_module(model,module_path_str)
+            module.register_buffer(buffer_name_to_register, value_to_add.clone().detach())
+
+        for name, m in model.named_modules():
+            if not isinstance(m,(Linear,Conv2d)): continue
+            if not hasattr(m,'act_scale') : continue
+            m.register_forward_pre_hook(_quantize_input)
     # old versions did not save class info in checkpoints, this walkaround is
     # for backward compatibility
     if 'CLASSES' in checkpoint.get('meta', {}):
@@ -259,11 +276,23 @@ def main():
         model = MMDataParallel(model, device_ids=[0])
         model.eval() 
         
-        from torch.nn import Linear, Conv2d
-        from _OBS import TrueOBS, Quantizer, get_module, _calibrate_input
-
+        
+        exclude = ['re:.*pts_bbox_head.transformer.decoder.layers.*.attentions.0.attn.out_proj']
+        include = []
+        if args.include is not None:
+            include.extend([ x for x in args.include.replace(' ','').split(',') ]) 
+            if args.include=='': include = []
+        TARGET = []
         for name, m in model.named_modules():
-            if not isinstance(m,(Linear,Conv2d)): continue
+            if is_match(name,exclude):continue
+            if not is_match(name,include): continue
+            if not isinstance(m,(Linear,Conv2d)):continue
+            TARGET.append(name)        
+        logger.info(f'target modules: {TARGET}')
+                    
+        for name in TARGET:
+            # if not isinstance(m,(Linear,Conv2d)): continue
+            m = get_module(model,name)
             trueobs[name] = TrueOBS(m, rel_damp=damp)
             trueobs[name].quantizer = Quantizer()
             trueobs[name].quantizer.configure(
@@ -310,8 +339,8 @@ def main():
         for name, m in model.named_modules():
             if not isinstance(m,(Linear,Conv2d)): continue
             if name in DEAD_LAYER: continue
-            m.register_buffer('maxq',torch.tensor(2**(BIT)-1, device=m.weight.device))
-            m.register_buffer('minq',torch.tensor(-2**(BIT),  device=m.weight.device))
+            m.register_buffer('maxq',torch.tensor(2**(BIT-1)-1, device=m.weight.device))
+            m.register_buffer('minq',torch.tensor(-2**(BIT-1),  device=m.weight.device))
             handles.append(m.register_forward_pre_hook(_calibrate_input))   
         logger.info('Act quantization start')
         for i, data in enumerate(tqdm(data_loader)):
@@ -322,8 +351,9 @@ def main():
         for h in handles:
             h.remove() 
         logger.info('Act quantization end')        
-        param = model.state_dict()
+        param = model.module.state_dict()
         torch.save(param, f'ckpts/{args.prefix}.pth')
+        pp = torch.load(f'ckpts/{args.prefix}.pth')
         logger.info('Finished')    
         
 
@@ -351,7 +381,11 @@ def main():
         # # img_backbone    mmdet.models.backbones.resnet.ResNet
         # # img_neck        mmdet.models.necks.fpn.FPN
         # # grid_mask       projects.mmdet3d_plugin.models.utils.grid_mask.GridMask'
-
+        # for name,_ in model.pts_bbox_head.transformer.named_children():print(name)
+        # encoder
+        # decoder
+        # reference_points
+        # can_bus_mlp
 
 
         model = MMDistributedDataParallel(

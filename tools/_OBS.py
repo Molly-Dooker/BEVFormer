@@ -3,7 +3,7 @@ import time
 from tqdm import tqdm
 import torch
 import torch.nn as nn
-
+import re
 
 
 import ipdb
@@ -11,6 +11,18 @@ torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
 DEBUG = False 
+
+
+def is_match(name, patterns):
+    for pattern in patterns:
+        if pattern.startswith('re:'):
+            regex = pattern[3:]
+            if re.match(regex, name): 
+                return True
+        else:
+            if pattern==name:
+                return True
+    return False
 
 
 def quantize(x, scale, minq, maxq):
