@@ -220,7 +220,7 @@ data = dict(
               data_root=data_root,
               ann_file=data_root + 'nuscenes_infos_temporal_val_s.pkl',
               pipeline=test_pipeline, bev_size=(bev_h_, bev_w_),
-              classes=class_names, modality=input_modality, samples_per_gpu=4),
+              classes=class_names, modality=input_modality),
     shuffler_sampler=dict(type='DistributedGroupSampler'),
     nonshuffler_sampler=dict(type='DistributedSampler')
 )

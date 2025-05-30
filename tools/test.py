@@ -176,12 +176,21 @@ def main():
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
 
+    distributed = None
+    if args.launcher == 'none':
+        distributed = False
+    else:
+        distributed = True
     cfg.model.pretrained = None
     # in case the test dataset is concatenated
     samples_per_gpu = 1
     if isinstance(cfg.data.test, dict):
         cfg.data.test.test_mode = True
         samples_per_gpu = cfg.data.test.pop('samples_per_gpu', 1)
+        if distributed: 
+            samples_per_gpu = 1
+        else:
+            samples_per_gpu = 4
         if samples_per_gpu > 1:
             # Replace 'ImageToTensor' to 'DefaultFormatBundle'
             cfg.data.test.pipeline = replace_ImageToTensor(
@@ -196,10 +205,7 @@ def main():
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
 
     # init distributed env first, since logger depends on the dist info.
-    if args.launcher == 'none':
-        distributed = False
-    else:
-        distributed = True
+    if distributed:
         init_dist(args.launcher, **cfg.dist_params)
 
     # set random seeds
@@ -227,6 +233,10 @@ def main():
     # if args.fuse_conv_bn:
     #     model = fuse_conv_bn(model)
     model = fuse_conv_bn(model)
+    # distributed = True
+    if distributed and args.prefix!='':
+        params = torch.load(f'ckpts/{args.prefix}.pth')
+        ipdb.set_trace()
     # old versions did not save class info in checkpoints, this walkaround is
     # for backward compatibility
     if 'CLASSES' in checkpoint.get('meta', {}):
@@ -242,6 +252,7 @@ def main():
 
     if not distributed:
         logger_enable(args.prefix)
+        BATCH_TO_PROCESS = 3
         BIT = 8
         damp = 0.01
         trueobs = {}
@@ -272,21 +283,24 @@ def main():
         for i, data in enumerate(tqdm(data_loader)):
             with torch.no_grad():
                 _ = model(return_loss=False, rescale=True, **data)
+            logger.info(f'batch {i+1}/{BATCH_TO_PROCESS}')
+            if i+1==BATCH_TO_PROCESS : break
         logger.info('inference for Hessian end')
         for h in handles:
             h.remove()    
         logger.info('Weight quantization start')
         DEAD_LAYER = []
-        for name,_ in tqdm(model.named_modules(),desc='Weight quantization'):
-            logger.info(f'{name}')
+
+        for i, name in enumerate(tqdm(trueobs,desc='weight Q')):   
+            # if not isinstance(m,(Linear,Conv2d)): continue      
             try:
                 error = trueobs[name].quantize()
-                logger.info(f'error : {error}')
+                logger.info(f'{i+1:3}/252 {name} : {error}')
                 m = get_module(model,name)
                 m.register_buffer('w_scale',trueobs[name].quantizer.scale)
             except:
                 DEAD_LAYER.append(name)
-                logger.info(f'!!!!!!!!!!!! DEAD')
+                logger.info(f'{i+1:3}/252 {name} : DEAD')
             finally:
                 trueobs[name].free()
         logger.info('Weight quantization end')
@@ -303,7 +317,8 @@ def main():
         for i, data in enumerate(tqdm(data_loader)):
             with torch.no_grad():
                 _ = model(return_loss=False, rescale=True, **data)
-                # if i==2: break
+            logger.info(f'batch {i+1}/{BATCH_TO_PROCESS}')
+            if i+1==BATCH_TO_PROCESS : break
         for h in handles:
             h.remove() 
         logger.info('Act quantization end')        
@@ -353,7 +368,7 @@ def main():
                 #mmcv.dump(outputs['bbox_results'], args.out)
             kwargs = {} if args.eval_options is None else args.eval_options
             kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
-                '/')[-1].split('.')[-2], time.ctime().replace(' ', '_').replace(':', '_'))
+                '/')[-1].split('.')[-2], args.prefix)
             if args.format_only:
                 dataset.format_results(outputs, **kwargs)
 
