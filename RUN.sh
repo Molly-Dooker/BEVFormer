@@ -7,43 +7,43 @@ GPUS=8 # dist_test.sh에서 사용할 GPU 수
 
 # INCLUDE 목록 (각 항목은 큰따옴표로 묶어주세요)
 INCLUDE_PATTERNS=(
-    "re:.*pts_bbox_head.transformer.decoder.layers.0.*"
-    "re:.*pts_bbox_head.transformer.decoder.layers.1.*"
-    "re:.*pts_bbox_head.transformer.decoder.layers.2.*"
-    "re:.*pts_bbox_head.transformer.decoder.layers.3.*"
-    "re:.*pts_bbox_head.transformer.decoder.layers.4.*"
-    "re:.*pts_bbox_head.transformer.decoder.layers.5.*"
-    "re:.*img_backbone.conv1.*"
-    "re:.*img_backbone.layer1.*"
-    "re:.*img_backbone.layer2.*"
-    "re:.*img_backbone.layer3.*"
-    "re:.*img_backbone.layer4.*"
-    "re:.*img_neck.lateral_convs.*"
-    "re:.*img_neck.fpn_convs.*"
-    "re:.*pts_bbox_head.cls_branches.0.*"
-    "re:.*pts_bbox_head.cls_branches.1.*"
-    "re:.*pts_bbox_head.cls_branches.2.*"
-    "re:.*pts_bbox_head.cls_branches.3.*"
-    "re:.*pts_bbox_head.cls_branches.4.*"
-    "re:.*pts_bbox_head.cls_branches.5.*"
-    "re:.*pts_bbox_head.reg_branches.0.*"
-    "re:.*pts_bbox_head.reg_branches.1.*"
-    "re:.*pts_bbox_head.reg_branches.2.*"
-    "re:.*pts_bbox_head.reg_branches.3.*"
-    "re:.*pts_bbox_head.reg_branches.4.*"
-    "re:.*pts_bbox_head.reg_branches.5.*"
-    "re:.*pts_bbox_head.transformer.encoder.layers.0.*"
-    "re:.*pts_bbox_head.transformer.encoder.layers.1.*"
-    "re:.*pts_bbox_head.transformer.encoder.layers.2.*"
-    "re:.*pts_bbox_head.transformer.encoder.layers.3.*"
-    "re:.*pts_bbox_head.transformer.encoder.layers.4.*"
-    "re:.*pts_bbox_head.transformer.encoder.layers.5.*"
-    "re:.*pts_bbox_head.transformer.reference_points.*"
-    "re:.*pts_bbox_head.transformer.can_bus_mlp.*"
+    # "re:.*pts_bbox_head.transformer.decoder.layers.0.*" #0
+    # "re:.*pts_bbox_head.transformer.decoder.layers.1.*" #1 
+    # "re:.*pts_bbox_head.transformer.decoder.layers.2.*" #2 
+    # "re:.*pts_bbox_head.transformer.decoder.layers.3.*" #3 
+    # "re:.*pts_bbox_head.transformer.decoder.layers.4.*" #4 
+    # "re:.*pts_bbox_head.transformer.decoder.layers.5.*" #5 
+    # "re:.*img_backbone.conv1.*" #6
+    # "re:.*img_backbone.layer1.*" #7
+    # "re:.*img_backbone.layer2.*" #8
+    "re:.*img_backbone.layer3.*" #9
+    "re:.*img_backbone.layer4.*" #10
+    "re:.*img_neck.lateral_convs.*" #11
+    "re:.*img_neck.fpn_convs.*" #12
+    "re:.*pts_bbox_head.cls_branches.0.*" #13
+    "re:.*pts_bbox_head.cls_branches.1.*" #14
+    "re:.*pts_bbox_head.cls_branches.2.*" #15
+    "re:.*pts_bbox_head.cls_branches.3.*" #16
+    "re:.*pts_bbox_head.cls_branches.4.*" #17
+    "re:.*pts_bbox_head.cls_branches.5.*" #18
+    "re:.*pts_bbox_head.reg_branches.0.*" #19 
+    "re:.*pts_bbox_head.reg_branches.1.*" #20
+    "re:.*pts_bbox_head.reg_branches.2.*" #21
+    "re:.*pts_bbox_head.reg_branches.3.*" #22
+    "re:.*pts_bbox_head.reg_branches.4.*" #23
+    "re:.*pts_bbox_head.reg_branches.5.*" #24
+    "re:.*pts_bbox_head.transformer.encoder.layers.0.*" #25
+    "re:.*pts_bbox_head.transformer.encoder.layers.1.*" #26
+    "re:.*pts_bbox_head.transformer.encoder.layers.2.*" #27
+    "re:.*pts_bbox_head.transformer.encoder.layers.3.*" #28
+    "re:.*pts_bbox_head.transformer.encoder.layers.4.*" #29
+    "re:.*pts_bbox_head.transformer.encoder.layers.5.*" #30
+    "re:.*pts_bbox_head.transformer.reference_points.*" #31
+    "re:.*pts_bbox_head.transformer.can_bus_mlp.*" #32
 )
 
 # NUMBER 초기화
-NUMBER=0
+NUMBER=9
 
 # --- 메인 루프 ---
 for INCLUDE_VALUE in "${INCLUDE_PATTERNS[@]}"; do
