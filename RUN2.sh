@@ -6,29 +6,29 @@ CHECKPOINT_FILE="./ckpts/bevformer_r101_dcn_24ep.pth"
 
 # INCLUDE_PATTERNS 목록 (총 23개 항목, 인덱스 0-22)
 INCLUDE_PATTERNS=(
-    "re:.*img_backbone.layer4.*"                 # 인덱스 10
-    "re:.*img_neck.lateral_convs.*"              # 인덱스 11
-    "re:.*img_neck.fpn_convs.*"                  # 인덱스 12
-    "re:.*pts_bbox_head.cls_branches.0.*"        # 인덱스 13
-    "re:.*pts_bbox_head.cls_branches.1.*"        # 인덱스 14
-    "re:.*pts_bbox_head.cls_branches.2.*"        # 인덱스 15
-    "re:.*pts_bbox_head.cls_branches.3.*"        # 인덱스 16
-    "re:.*pts_bbox_head.cls_branches.4.*"        # 인덱스 7
-    "re:.*pts_bbox_head.cls_branches.5.*"        # 인덱스 18
-    "re:.*pts_bbox_head.reg_branches.0.*"        # 인덱스 19
-    "re:.*pts_bbox_head.reg_branches.1.*"        # 인덱스 20
-    "re:.*pts_bbox_head.reg_branches.2.*"        # 인덱스 21
-    "re:.*pts_bbox_head.reg_branches.3.*"        # 인덱스 22
-    "re:.*pts_bbox_head.reg_branches.4.*"        # 인덱스 23
-    "re:.*pts_bbox_head.reg_branches.5.*"        # 인덱스 24
-    "re:.*pts_bbox_head.transformer.encoder.layers.0.*" # 인덱스 25
-    "re:.*pts_bbox_head.transformer.encoder.layers.1.*" # 인덱스 26
-    "re:.*pts_bbox_head.transformer.encoder.layers.2.*" # 인덱스 27
-    "re:.*pts_bbox_head.transformer.encoder.layers.3.*" # 인덱스 28
-    "re:.*pts_bbox_head.transformer.encoder.layers.4.*" # 인덱스 29
-    "re:.*pts_bbox_head.transformer.encoder.layers.5.*" # 인덱스 30
-    "re:.*pts_bbox_head.transformer.reference_points.*" # 인덱스 31
-    "re:.*pts_bbox_head.transformer.can_bus_mlp.*"      # 인덱스 32
+    "re:.*img_backbone.layer4.*"                 # 인덱스 0  -> PREFIX_VALUE test_10
+    "re:.*img_neck.lateral_convs.*"              # 인덱스 1  -> PREFIX_VALUE test_11
+    "re:.*img_neck.fpn_convs.*"                  # 인덱스 2  -> PREFIX_VALUE test_12
+    "re:.*pts_bbox_head.cls_branches.0.*"        # 인덱스 3  -> PREFIX_VALUE test_13
+    "re:.*pts_bbox_head.cls_branches.1.*"        # 인덱스 4  -> PREFIX_VALUE test_14
+    "re:.*pts_bbox_head.cls_branches.2.*"        # 인덱스 5  -> PREFIX_VALUE test_15
+    "re:.*pts_bbox_head.cls_branches.3.*"        # 인덱스 6  -> PREFIX_VALUE test_16
+    "re:.*pts_bbox_head.cls_branches.4.*"        # 인덱스 7  -> PREFIX_VALUE test_17
+    "re:.*pts_bbox_head.cls_branches.5.*"        # 인덱스 8  -> PREFIX_VALUE test_18
+    "re:.*pts_bbox_head.reg_branches.0.*"        # 인덱스 9  -> PREFIX_VALUE test_19
+    "re:.*pts_bbox_head.reg_branches.1.*"        # 인덱스 10 -> PREFIX_VALUE test_20
+    "re:.*pts_bbox_head.reg_branches.2.*"        # 인덱스 11 -> PREFIX_VALUE test_21
+    "re:.*pts_bbox_head.reg_branches.3.*"        # 인덱스 12 -> PREFIX_VALUE test_22
+    "re:.*pts_bbox_head.reg_branches.4.*"        # 인덱스 13 -> PREFIX_VALUE test_23
+    "re:.*pts_bbox_head.reg_branches.5.*"        # 인덱스 14 -> PREFIX_VALUE test_24
+    "re:.*pts_bbox_head.transformer.encoder.layers.0.*" # 인덱스 15 -> PREFIX_VALUE test_25
+    "re:.*pts_bbox_head.transformer.encoder.layers.1.*" # 인덱스 16 -> PREFIX_VALUE test_26
+    "re:.*pts_bbox_head.transformer.encoder.layers.2.*" # 인덱스 17 -> PREFIX_VALUE test_27
+    "re:.*pts_bbox_head.transformer.encoder.layers.3.*" # 인덱스 18 -> PREFIX_VALUE test_28
+    "re:.*pts_bbox_head.transformer.encoder.layers.4.*" # 인덱스 19 -> PREFIX_VALUE test_29
+    "re:.*pts_bbox_head.transformer.encoder.layers.5.*" # 인덱스 20 -> PREFIX_VALUE test_30
+    "re:.*pts_bbox_head.transformer.reference_points.*" # 인덱스 21 -> PREFIX_VALUE test_31
+    "re:.*pts_bbox_head.transformer.can_bus_mlp.*"      # 인덱스 22 -> PREFIX_VALUE test_32
 )
 
 # --- 스크립트 입력 인자 (DEVICE_ID) 처리 ---
@@ -64,7 +64,7 @@ echo "===================================================================="
 processed_count=0
 for (( i=0; i<max_iterations_per_device; i++ )); do
     # NUMBER는 INCLUDE_PATTERNS 배열의 실제 인덱스 값임
-    NUMBER=$((start_array_index + i ))
+    NUMBER=$((start_array_index + i))
 
     # 현재 인덱스(NUMBER)가 유효한 범위 내에 있는지 확인
     if [[ ${NUMBER} -ge ${total_patterns} ]]; then
@@ -73,9 +73,12 @@ for (( i=0; i<max_iterations_per_device; i++ )); do
     fi
 
     INCLUDE_VALUE="${INCLUDE_PATTERNS[NUMBER]}"
-    PREFIX_VALUE="test_${NUMBER}" # PREFIX는 실제 배열 인덱스를 사용
+    
+    # PREFIX_VALUE 생성 시 NUMBER (0기반 인덱스)에 10을 더함
+    PREFIX_NUMBER_OFFSETTED=$((NUMBER + 10))
+    PREFIX_VALUE="test_${PREFIX_NUMBER_OFFSETTED}"
 
-    echo "실행: 실제 배열 인덱스(NUMBER)=${NUMBER}, PREFIX='${PREFIX_VALUE}'"
+    echo "실행: 실제 배열 인덱스(NUMBER)=${NUMBER}, PREFIX='${PREFIX_VALUE}' (test_$((${NUMBER}+10)))"
     echo "INCLUDE='${INCLUDE_VALUE}'"
     echo "CUDA_VISIBLE_DEVICES=${DEVICE_ID}"
     echo "--------------------------------------------------------------------"
