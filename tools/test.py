@@ -230,12 +230,13 @@ def main():
         if buffer_name_to_register not in ['w_scale','act_scale','maxq','minq']: continue
         module = get_module(model,module_path_str)
         module.register_buffer(buffer_name_to_register, value_to_add.clone().detach())
-
+    rank,_ = get_dist_info()
+    if rank==0 : print(f'load ckpts/{args.prefix}.pth')
     for name, m in model.named_modules():
         if not isinstance(m,(Linear,Conv2d)): continue
-        if not hasattr(m,'act_scale') : continue
-        print(f'register prehook : {name}')
+        if not hasattr(m,'act_scale') : continue        
         m.register_forward_pre_hook(_quantize_input)
+        if rank ==0 : print(f'register prehook : {name}')
 
     # old versions did not save class info in checkpoints, this walkaround is
     # for backward compatibility
