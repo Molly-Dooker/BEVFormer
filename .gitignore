@@ -13,7 +13,7 @@ ckpts/
 data/
 ckpts
 data
-test/
+# test/
 val/
 work_dirs/
 develop-eggs/
