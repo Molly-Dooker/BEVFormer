@@ -11,7 +11,7 @@ import warnings
 from mmcv import Config, DictAction
 from mmcv.cnn import fuse_conv_bn
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
-from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
+from mmcv.runner import (get_dist_info, init_dist, load_checkpoint, _load_checkpoint,
                          wrap_fp16_model)
 
 from mmdet3d.apis import single_gpu_test
@@ -23,7 +23,8 @@ from projects.mmdet3d_plugin.bevformer.apis.test import custom_multi_gpu_test
 from mmdet.datasets import replace_ImageToTensor
 import time
 import os.path as osp
-
+from _OBS import get_module, _quantize_input
+from torch.nn import Linear, Conv2d
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -93,6 +94,7 @@ def parse_args():
         default='none',
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument("--prefix", type=str, default="")
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -181,6 +183,8 @@ def main():
             for ds_cfg in cfg.data.test:
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
 
+    # 
+    
     # init distributed env first, since logger depends on the dist info.
     if args.launcher == 'none':
         distributed = False
@@ -214,6 +218,25 @@ def main():
     if True: 
         print('fuse conv bn')
         model = fuse_conv_bn(model)
+    
+    # params = torch.load(f'ckpts/{args.prefix}.pth')   
+    params = _load_checkpoint(f'ckpts/{args.prefix}.pth', 'cpu', None)
+    model.load_state_dict(params, strict=False)
+    # w_scale, act_scale, max_q, min_q 추가
+    for key_to_add, value_to_add in params.items():
+        path_parts = key_to_add.split('.') 
+        buffer_name_to_register = path_parts[-1]
+        module_path_str = '.'.join(path_parts[:-1])
+        if buffer_name_to_register not in ['w_scale','act_scale','maxq','minq']: continue
+        module = get_module(model,module_path_str)
+        module.register_buffer(buffer_name_to_register, value_to_add.clone().detach())
+
+    for name, m in model.named_modules():
+        if not isinstance(m,(Linear,Conv2d)): continue
+        if not hasattr(m,'act_scale') : continue
+        print(f'register prehook : {name}')
+        m.register_forward_pre_hook(_quantize_input)
+
     # old versions did not save class info in checkpoints, this walkaround is
     # for backward compatibility
     if 'CLASSES' in checkpoint.get('meta', {}):
@@ -247,7 +270,7 @@ def main():
             #mmcv.dump(outputs['bbox_results'], args.out)
         kwargs = {} if args.eval_options is None else args.eval_options
         kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
-            '/')[-1].split('.')[-2], 'TTTT')
+            '/')[-1].split('.')[-2], args.prefix)
         if args.format_only:
             dataset.format_results(outputs, **kwargs)
 
