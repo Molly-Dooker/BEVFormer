@@ -23,8 +23,23 @@ from projects.mmdet3d_plugin.bevformer.apis.test import custom_multi_gpu_test
 from mmdet.datasets import replace_ImageToTensor
 import time
 import os.path as osp
-from _OBS import get_module, _quantize_input
+import ipdb
+from tqdm import tqdm
+from loguru import logger
+import sys
 from torch.nn import Linear, Conv2d
+from _OBS import TrueOBS, Quantizer, get_module, _calibrate_input, _quantize_input, is_match
+        
+def logger_enable(prefix=''):
+    def console_filter(record):
+        # extra에 file_only가 True인 경우 콘솔 출력 제외
+        return not record["extra"].get("file_only", False)
+    global logger
+    logger.remove()
+    LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {extra[prefix]} | {level} | {message}"
+    logger.add(sys.stdout, level="INFO", format=LOG_FORMAT, filter=console_filter)
+    logger.add("_logs/log", rotation="500 MB", level="INFO", format=LOG_FORMAT)
+    logger = logger.bind(prefix=prefix)
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -95,6 +110,7 @@ def parse_args():
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument("--prefix", type=str, default="")
+    parser.add_argument("--include", type=str, default="")
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -164,12 +180,21 @@ def main():
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
 
+    distributed = None
+    if args.launcher == 'none':
+        distributed = False
+    else:
+        distributed = True
     cfg.model.pretrained = None
     # in case the test dataset is concatenated
     samples_per_gpu = 1
     if isinstance(cfg.data.test, dict):
         cfg.data.test.test_mode = True
         samples_per_gpu = cfg.data.test.pop('samples_per_gpu', 1)
+        if distributed: 
+            samples_per_gpu = 1
+        else:
+            samples_per_gpu = 4
         if samples_per_gpu > 1:
             # Replace 'ImageToTensor' to 'DefaultFormatBundle'
             cfg.data.test.pipeline = replace_ImageToTensor(
@@ -183,13 +208,8 @@ def main():
             for ds_cfg in cfg.data.test:
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
 
-    # 
-    
     # init distributed env first, since logger depends on the dist info.
-    if args.launcher == 'none':
-        distributed = False
-    else:
-        distributed = True
+    if distributed:
         init_dist(args.launcher, **cfg.dist_params)
 
     # set random seeds
@@ -214,30 +234,27 @@ def main():
     if fp16_cfg is not None:
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
-    # if args.fuse_conv_bn:
-    if True: 
-        print('fuse conv bn')
+    if True: # args.fuse_conv_bn:
         model = fuse_conv_bn(model)
-    
-    # params = torch.load(f'ckpts/{args.prefix}.pth')   
-    params = _load_checkpoint(f'ckpts/{args.prefix}.pth', 'cpu', None)
-    model.load_state_dict(params, strict=False)
-    # w_scale, act_scale, max_q, min_q 추가
-    for key_to_add, value_to_add in params.items():
-        path_parts = key_to_add.split('.') 
-        buffer_name_to_register = path_parts[-1]
-        module_path_str = '.'.join(path_parts[:-1])
-        if buffer_name_to_register not in ['w_scale','act_scale','maxq','minq']: continue
-        module = get_module(model,module_path_str)
-        module.register_buffer(buffer_name_to_register, value_to_add.clone().detach())
-    rank,_ = get_dist_info()
-    if rank==0 : print(f'load ckpts/{args.prefix}.pth')
-    for name, m in model.named_modules():
-        if not isinstance(m,(Linear,Conv2d)): continue
-        if not hasattr(m,'act_scale') : continue        
-        m.register_forward_pre_hook(_quantize_input)
-        if rank ==0 : print(f'register prehook : {name}')
 
+    if distributed and args.prefix!='':      
+        print(f'prefix:{args.prefix}')              
+        params = _load_checkpoint(f'ckpts/{args.prefix}.pth', 'cpu', None)
+        model.load_state_dict(params, strict=False)
+        # w_scale, act_scale, max_q, min_q 추가
+        for key_to_add, value_to_add in params.items():
+            path_parts = key_to_add.split('.') 
+            buffer_name_to_register = path_parts[-1]
+            module_path_str = '.'.join(path_parts[:-1])
+            if buffer_name_to_register not in ['w_scale','act_scale','maxq','minq']: continue
+            module = get_module(model,module_path_str)
+            module.register_buffer(buffer_name_to_register, value_to_add.clone().detach())
+
+        for name, m in model.named_modules():
+            if not isinstance(m,(Linear,Conv2d)): continue
+            if not hasattr(m,'act_scale') : continue
+            print(f'register prehook : {name}')
+            m.register_forward_pre_hook(_quantize_input)
     # old versions did not save class info in checkpoints, this walkaround is
     # for backward compatibility
     if 'CLASSES' in checkpoint.get('meta', {}):
@@ -252,40 +269,159 @@ def main():
         model.PALETTE = dataset.PALETTE
 
     if not distributed:
-        assert False
-        # model = MMDataParallel(model, device_ids=[0])
-        # outputs = single_gpu_test(model, data_loader, args.show, args.show_dir)
+        logger_enable(args.prefix)
+        BATCH_TO_PROCESS = 700
+        BIT = 8
+        damp = 0.01
+        trueobs = {}
+        model = MMDataParallel(model, device_ids=[0])
+        model.eval() 
+        
+
+        exclude = ['re:.*pts_bbox_head.transformer.decoder.layers.*.attentions.0.attn.out_proj']
+        include = []
+        if args.include is not None:
+            include.extend([ x for x in args.include.replace(' ','').split(',') ]) 
+            if args.include=='': include = []
+        logger.info(f'INCLUDE: {include}')
+        TARGET = []
+        for name, m in model.named_modules():
+            if is_match(name,exclude): continue
+            if not is_match(name,include): continue
+            if not isinstance(m,(Linear,Conv2d)):continue
+            TARGET.append(name)        
+        logger.info(f'target modules: {TARGET}')
+                    
+        for name in TARGET:
+            m = get_module(model,name)
+            trueobs[name] = TrueOBS(m, rel_damp=damp)
+            trueobs[name].quantizer = Quantizer()
+            trueobs[name].quantizer.configure(
+                bits=BIT, perchannel=True, sym=True, mse=False
+            )
+
+
+        def add_batch(name):
+            def tmp(layer, inp, out):
+                trueobs[name].add_batch(inp[0].data, out.data)
+            return tmp
+        handles = []
+        for name in TARGET:
+            m = get_module(model,name)
+            handles.append(m.register_forward_hook(add_batch(name)))
+        logger.info('inference for Hessian start')
+        for i, data in enumerate(tqdm(data_loader)):
+            with torch.no_grad():
+                _ = model(return_loss=False, rescale=True, **data)
+            logger.info(f'batch {i+1}/{BATCH_TO_PROCESS}')
+            if i+1==BATCH_TO_PROCESS : break
+        logger.info('inference for Hessian end')
+        for h in handles:
+            h.remove()    
+        logger.info('Weight quantization start')
+        DEAD_LAYER = []
+
+        for i, name in enumerate(tqdm(TARGET,desc='weight Q')):
+            m = get_module(model,name)
+            try:
+                error = trueobs[name].quantize()
+                if error==0.0:
+                    logger.info(f'{i+1:3}/{len(TARGET)} {name} : error 0 -> DEAD')
+                    DEAD_LAYER.append(name)
+                else:
+                    logger.info(f'{i+1:3}/{len(TARGET)} {name} : {error}')
+                    m = get_module(model,name)
+                    m.register_buffer('w_scale',trueobs[name].quantizer.scale)
+            except:
+                DEAD_LAYER.append(name)
+                logger.info(f'{i+1:3}/{len(TARGET)} {name} : DEAD')
+            finally:
+                trueobs[name].free()
+        logger.info('Weight quantization end')
+
+        # Act quantization
+        handles = []
+        for name in TARGET:
+            m = get_module(model,name)
+            if not isinstance(m,(Linear,Conv2d)): continue
+            if name in DEAD_LAYER: continue
+            m.register_buffer('maxq',torch.tensor(2**(BIT-1)-1, device=m.weight.device))
+            m.register_buffer('minq',torch.tensor(-2**(BIT-1),  device=m.weight.device))
+            handles.append(m.register_forward_pre_hook(_calibrate_input))   
+        logger.info('Act quantization start')
+        for i, data in enumerate(tqdm(data_loader)):
+            with torch.no_grad():
+                _ = model(return_loss=False, rescale=True, **data)
+            logger.info(f'batch {i+1}/{BATCH_TO_PROCESS}')
+            if i+1==BATCH_TO_PROCESS : break
+        for h in handles:
+            h.remove() 
+        logger.info('Act quantization end')        
+        param = model.module.state_dict()
+        torch.save(param, f'ckpts/{args.prefix}.pth')
+        logger.info('Finished')    
+        
+
+
+
     else:
+        # ipdb.set_trace()
+        # head = model.pts_bbox_head
+        # for name, _ in head.named_children():
+        #     print(name)    
+        #     # loss_cls
+        #     # loss_bbox
+        #     # loss_iou
+        #     # activate
+        #     # positional_encoding
+        #     # transformer
+        #     # cls_branches
+        #     # reg_branches
+        #     # bev_embedding
+        #     # query_embedding
+            
+        # for name, _ in model.named_children():
+        #     print(name)    
+        # # pts_bbox_head   projects.mmdet3d_plugin.bevformer.dense_heads.bevformer_head.BEVFormerHead
+        # # img_backbone    mmdet.models.backbones.resnet.ResNet
+        # # img_neck        mmdet.models.necks.fpn.FPN
+        # # grid_mask       projects.mmdet3d_plugin.models.utils.grid_mask.GridMask'
+        # for name,_ in model.pts_bbox_head.transformer.named_children():print(name)
+        # encoder
+        # decoder
+        # reference_points
+        # can_bus_mlp
+
+
         model = MMDistributedDataParallel(
             model.cuda(),
             device_ids=[torch.cuda.current_device()],
             broadcast_buffers=False)
         outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
                                         args.gpu_collect)
+        rank, _ = get_dist_info()
+        if rank == 0:
+            if args.out:
+                print(f'\nwriting results to {args.out}')
+                assert False
+                #mmcv.dump(outputs['bbox_results'], args.out)
+            kwargs = {} if args.eval_options is None else args.eval_options
+            kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
+                '/')[-1].split('.')[-2], args.prefix)
+            if args.format_only:
+                dataset.format_results(outputs, **kwargs)
 
-    rank, _ = get_dist_info()
-    if rank == 0:
-        if args.out:
-            print(f'\nwriting results to {args.out}')
-            assert False
-            #mmcv.dump(outputs['bbox_results'], args.out)
-        kwargs = {} if args.eval_options is None else args.eval_options
-        kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
-            '/')[-1].split('.')[-2], args.prefix)
-        if args.format_only:
-            dataset.format_results(outputs, **kwargs)
+            if args.eval:
+                eval_kwargs = cfg.get('evaluation', {}).copy()
+                # hard-code way to remove EvalHook args
+                for key in [
+                        'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
+                        'rule'
+                ]:
+                    eval_kwargs.pop(key, None)
+                eval_kwargs.update(dict(metric=args.eval, **kwargs))
 
-        if args.eval:
-            eval_kwargs = cfg.get('evaluation', {}).copy()
-            # hard-code way to remove EvalHook args
-            for key in [
-                    'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
-                    'rule'
-            ]:
-                eval_kwargs.pop(key, None)
-            eval_kwargs.update(dict(metric=args.eval, **kwargs))
-
-            print(dataset.evaluate(outputs, **eval_kwargs))
+                print(dataset.evaluate(outputs, **eval_kwargs))
 
 
 if __name__ == '__main__':
