@@ -110,7 +110,8 @@ def parse_args():
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument("--prefix", type=str, default="")
-    parser.add_argument("--include", type=str, default="")
+    parser.add_argument("--include", type=str)
+    parser.add_argument("--exclude", type=str)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
@@ -274,21 +275,27 @@ def main():
         BIT = 8
         damp = 0.01
         trueobs = {}
+
         model = MMDataParallel(model, device_ids=[0])
         model.eval() 
         
-
         exclude = ['re:.*pts_bbox_head.transformer.decoder.layers.*.attentions.0.attn.out_proj']
         include = []
         if args.include is not None:
             include.extend([ x for x in args.include.replace(' ','').split(',') ]) 
-            if args.include=='': include = []
+        if args.exclude is not None:
+            exclude.extend([ x for x in args.exclude.replace(' ','').split(',') ]) 
         logger.info(f'INCLUDE: {include}')
+        logger.info(f'EXCLUDE: {exclude}')
+        PASS_INCLUDE= True if not include else False
         TARGET = []
         for name, m in model.named_modules():
-            if is_match(name,exclude): continue
-            if not is_match(name,include): continue
             if not isinstance(m,(Linear,Conv2d)):continue
+            if is_match(name,exclude): 
+                print(name)
+                continue
+            if (not PASS_INCLUDE) and (not is_match(name, include)): continue
+            print(name)
             TARGET.append(name)        
         logger.info(f'target modules: {TARGET}')
                     
