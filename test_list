@@ -31,6 +31,11 @@
 .*pts_bbox_head.transformer.encoder.layers.5.*
 .*pts_bbox_head.transformer.reference_points.*
 .*pts_bbox_head.transformer.can_bus_mlp.*
-.*pts_bbox_head.transformer.can_bus_mlp.*                                                       33 #exclude
-.*pts_bbox_head.transformer.reference_points.*                                                  34 #exclude
-.*pts_bbox_head.transformer.can_bus_mlp.* , .*pts_bbox_head.transformer.reference_points.*      35 #exclude
+.*pts_bbox_head.transformer.can_bus_mlp.*                                                                                                    33 #exclude
+.*pts_bbox_head.transformer.reference_points.*                                                                                               34 #exclude
+.*pts_bbox_head.transformer.can_bus_mlp.* , .*pts_bbox_head.transformer.reference_points.*                                                   35 #exclude
+"re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* "                                          36 #exclude  35 regex 잘못써서 다시 돌림
+"re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.0.* "          37 #exclude 
+"re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.1.* "          38 #exclude
+"re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.2.* "          39 #exclude
+"re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.* "            40 #exclude

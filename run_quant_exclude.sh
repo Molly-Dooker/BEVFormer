@@ -7,11 +7,19 @@ CHECKPOINT_FILE="./ckpts/bevformer_r101_dcn_24ep.pth"
 # EXCLUDE_PATTERNS 목록 (예시: 15개 항목)
 # 실제 사용 시 이 부분을 채워주세요. 주석에는 23개로 되어 있었으나,
 # 현재 로직은 배열의 실제 크기를 기반으로 동적으로 분배합니다.
-OFFSET=33
+# OFFSET=33
+# EXCLUDE_PATTERNS=(
+#     "re:.*pts_bbox_head.transformer.can_bus_mlp.*"
+#     "re:.*pts_bbox_head.transformer.reference_points.*"
+#     "re:.*pts_bbox_head.transformer.can_bus_mlp.* , .*pts_bbox_head.transformer.reference_points.*"
+# )
+OFFSET=36
 EXCLUDE_PATTERNS=(
-    "re:.*pts_bbox_head.transformer.can_bus_mlp.*"
-    "re:.*pts_bbox_head.transformer.reference_points.*"
-    "re:.*pts_bbox_head.transformer.can_bus_mlp.* , .*pts_bbox_head.transformer.reference_points.*"
+    "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* "
+    "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.0.* "
+    "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.1.* "
+    "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.2.* "
+    "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.* "
 )
 
 # --- 스크립트 입력 인자 (DEVICE_ID) 처리 ---
