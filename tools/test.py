@@ -295,8 +295,7 @@ def main():
                 print(name)
                 continue
             if (not PASS_INCLUDE) and (not is_match(name, include)): continue
-            TARGET.append(name)    
-        ipdb.set_trace()    
+            TARGET.append(name)  
         logger.info(f'target modules: {TARGET}')
                     
         for name in TARGET:
