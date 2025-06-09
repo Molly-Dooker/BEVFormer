@@ -31,6 +31,13 @@
 .*pts_bbox_head.transformer.encoder.layers.5.*
 .*pts_bbox_head.transformer.reference_points.*
 .*pts_bbox_head.transformer.can_bus_mlp.*
+
+
+
+
+
+
+# exclude
 .*pts_bbox_head.transformer.can_bus_mlp.*
 .*pts_bbox_head.transformer.reference_points.*
 .*pts_bbox_head.transformer.can_bus_mlp.* , .*pts_bbox_head.transformer.reference_points.*
