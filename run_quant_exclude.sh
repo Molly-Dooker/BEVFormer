@@ -15,7 +15,7 @@ CHECKPOINT_FILE="./ckpts/bevformer_r101_dcn_24ep.pth"
 # )
 OFFSET=36
 EXCLUDE_PATTERNS=(
-    "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* "
+    "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* "   #35 번 regex 잘못써서 재실험
     "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.0.* "
     "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.1.* "
     "re:.*pts_bbox_head.transformer.can_bus_mlp.* , re:.*pts_bbox_head.transformer.reference_points.* ,  re:.*img_backbone.layer1.2.* "
